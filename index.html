@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<title>Rota Express Entregas</title>
+
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial;background:#0b0b0b;color:white}
+.app{max-width:460px;margin:auto;padding:16px}
+.top{background:linear-gradient(135deg,#ffd21f,#ff9900);color:#111;border-radius:24px;padding:20px;margin-bottom:14px}
+.top h1{margin:0;font-size:28px}
+.top p{margin:5px 0 0;font-weight:bold}
+.card{background:white;color:#111;border-radius:22px;padding:18px;margin-bottom:14px}
+input,select{width:100%;padding:13px;margin:6px 0;border-radius:14px;border:1px solid #ddd}
+button{width:100%;padding:13px;border-radius:15px;border:0;font-weight:bold;margin-top:8px;cursor:pointer}
+.main{background:#111;color:#ffd21f}
+.yellow{background:#ffd21f;color:#111}
+.gray{background:#333;color:white}
+.hide{display:none}
+</style>
+</head>
+
+<body>
+<div class="app">
+
+<div class="top">
+<h1>🏍️ Rota Express</h1>
+<p>Entregas rápidas na rota certa</p>
+</div>
+
+<section id="loginArea" class="card">
+<h2>Acessar painel</h2>
+
+<select id="loginTipo">
+<option value="cliente">Cliente</option>
+<option value="motoboy">Motoboy</option>
+<option value="admin">Admin</option>
+</select>
+
+<input id="loginUser" placeholder="Usuário / telefone">
+<input id="loginSenha" type="text" placeholder="Código de acesso">
+
+<button class="main" onclick="entrar()">Entrar</button>
+<button class="yellow" onclick="abrirCadastroCliente()">Cadastrar cliente</button>
+<button class="gray" onclick="abrirCadastroMotoboy()">Cadastrar motoboy</button>
+
+<p style="font-size:12px">Admin padrão: admin / 1234</p>
+</section>
+
+<section id="cadastroCliente" class="card hide">
+<h2>Cadastrar cliente</h2>
+<input id="cadCliNome" placeholder="Nome">
+<input id="cadCliTel" placeholder="WhatsApp">
+<input id="cadCliSenha" type="text" placeholder="Código de acesso">
+<button class="main" onclick="salvarCliente()">Salvar</button>
+<button class="gray" onclick="voltarLogin()">Voltar</button>
+</section>
+
+<section id="cadastroMotoboy" class="card hide">
+<h2>Cadastrar motoboy</h2>
+<input id="cadMotNome" placeholder="Nome">
+<input id="cadMotWhats" placeholder="WhatsApp">
+<input id="cadMotPix" placeholder="Chave Pix">
+<input id="cadMotSenha" type="text" placeholder="Código de acesso">
+<button class="main" onclick="salvarMotoboy()">Salvar</button>
+<button class="gray" onclick="voltarLogin()">Voltar</button>
+</section>
+
+</div>
+
+<script>
+let clientes = JSON.parse(localStorage.getItem("clientes")||"[]");
+let motoboys = JSON.parse(localStorage.getItem("motoboys")||"[]");
+
+function abrirCadastroCliente(){
+document.getElementById("loginArea").classList.add("hide");
+document.getElementById("cadastroCliente").classList.remove("hide");
+}
+
+function abrirCadastroMotoboy(){
+document.getElementById("loginArea").classList.add("hide");
+document.getElementById("cadastroMotoboy").classList.remove("hide");
+}
+
+function voltarLogin(){
+document.getElementById("loginArea").classList.remove("hide");
+document.getElementById("cadastroCliente").classList.add("hide");
+document.getElementById("cadastroMotoboy").classList.add("hide");
+}
+
+function salvarCliente(){
+clientes.push({
+user:cadCliTel.value,
+senha:cadCliSenha.value
+});
+localStorage.setItem("clientes",JSON.stringify(clientes));
+alert("Cliente salvo");
+voltarLogin();
+}
+
+function salvarMotoboy(){
+motoboys.push({
+user:cadMotWhats.value,
+senha:cadMotSenha.value,
+pix:cadMotPix.value
+});
+localStorage.setItem("motoboys",JSON.stringify(motoboys));
+alert("Motoboy salvo");
+voltarLogin();
+}
+
+function entrar(){
+let tipo = loginTipo.value;
+let user = loginUser.value;
+let senha = loginSenha.value;
+
+if(tipo==="admin" && user==="admin" && senha==="1234"){
+alert("Login admin OK");
+return;
+}
+
+if(tipo==="cliente"){
+let c = clientes.find(x=>x.user===user && x.senha===senha);
+if(c){alert("Login cliente OK");return;}
+}
+
+if(tipo==="motoboy"){
+let m = motoboys.find(x=>x.user===user && x.senha===senha);
+if(m){alert("Login motoboy OK");return;}
+}
+
+alert("Login inválido");
+}
+</script>
+
+</body>
+</html>
