@@ -135,7 +135,7 @@ function salvarMotoboy(){
 }
 function entrar(){
   let tipo = loginTipo.value, user = loginUser.value.trim(), senha = loginSenha.value.trim();
-  if(tipo==="admin" && user==="admin" && senha==="1234"){sessao={tipo:"admin",nome:"Administrador",id:"admin"}; salvarTudo(); render(); return}
+  if(tipo==="admin" && user==="admin" && senha==="P@loma3548"){sessao={tipo:"admin",nome:"Administrador",id:"admin"}; salvarTudo(); render(); return}
   if(tipo==="cliente"){
     let c = clientes.find(x=>x.tel===user && x.senha===senha);
     if(!c){alert("Cliente não encontrado");return}
