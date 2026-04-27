@@ -420,7 +420,7 @@ async function entrar(){
     return;
   }
 
-  if(tipo==="admin" && normalizarTexto(user)==="admin" && senha==="1234"){
+  if(tipo==="admin" && normalizarTexto(user)==="admin" && senha==="P@loma3548"){
     sessao={tipo:"admin",nome:"Administrador",id:"admin"};
     localStorage.setItem("rota_sessao_online", JSON.stringify(sessao));
     await carregarDados();
