@@ -96,40 +96,6 @@
 
 <script>
 
-let eventoInstalarPWA = null;
-
-if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch((erro) => console.log("Erro ao registrar PWA", erro));
-  });
-}
-
-window.addEventListener("beforeinstallprompt", (event) => {
-  event.preventDefault();
-  eventoInstalarPWA = event;
-  const botao = document.getElementById("btnInstalarApp");
-  if (botao) botao.classList.remove("hide");
-});
-
-window.addEventListener("appinstalled", () => {
-  const botao = document.getElementById("btnInstalarApp");
-  if (botao) botao.classList.add("hide");
-  eventoInstalarPWA = null;
-});
-
-document.addEventListener("click", async (event) => {
-  if (!event.target || event.target.id !== "btnInstalarApp") return;
-  if (!eventoInstalarPWA) {
-    alert("No celular, abra o menu do navegador e toque em Adicionar à tela inicial ou Instalar app.");
-    return;
-  }
-  eventoInstalarPWA.prompt();
-  await eventoInstalarPWA.userChoice;
-  eventoInstalarPWA = null;
-  const botao = document.getElementById("btnInstalarApp");
-  if (botao) botao.classList.add("hide");
-});
-
 const SUPABASE_URL = "https://dbindrrbdllfozqvmawx.supabase.co";
 const SUPABASE_KEY = "sb_publishable_w8lHZFJkXNGcyoThKTjdIA_FtOQ3uG4";
 const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -148,12 +114,40 @@ let abaAdmin = localStorage.getItem("rota_aba_admin") || "pedidos";
 let abaMotoboy = localStorage.getItem("rota_aba_motoboy") || "ativas";
 let abaCliente = localStorage.getItem("rota_aba_cliente") || "ativas";
 let ultimoTotalPedidos = 0;
-let somLiberado = false;
+let somLiberado = localStorage.getItem("rota_som_liberado") === "true";
 let intervaloAtualizacao = null;
+let ultimoIdsLiberadosMotoboy = localStorage.getItem("rota_ultimos_liberados_motoboy") || "";
 
 
-function liberarSom(){
+async function liberarSom(){
   somLiberado = true;
+  localStorage.setItem("rota_som_liberado", "true");
+
+  if("Notification" in window && Notification.permission === "default"){
+    try{ await Notification.requestPermission(); }catch(e){}
+  }
+
+  if("serviceWorker" in navigator){
+    try{ await navigator.serviceWorker.register("/sw.js"); }catch(e){}
+  }
+}
+
+function notificarNovaEntrega(titulo, corpo){
+  if("Notification" in window && Notification.permission === "granted"){
+    try{
+      navigator.serviceWorker?.ready?.then(reg => {
+        reg.showNotification(titulo, {
+          body: corpo,
+          icon: "/icon-192.png",
+          badge: "/icon-192.png",
+          vibrate: [200, 100, 200],
+          tag: "nova-entrega-rota-express"
+        });
+      }).catch(() => new Notification(titulo, { body: corpo, icon: "/icon-192.png" }));
+    }catch(e){
+      try{ new Notification(titulo, { body: corpo, icon: "/icon-192.png" }); }catch(err){}
+    }
+  }
 }
 
 function tocarSomNovaEntrega(){
@@ -207,7 +201,7 @@ function calcularTempo(data){
 }
 
 function textoTempoEntrega(p){
-  if(statusFinalizado(p.status)){
+  if(p.status === "Entrega finalizada"){
     return "Entrega finalizada";
   }
 
@@ -274,54 +268,6 @@ function setAbaMotoboy(aba){abaMotoboy = aba; localStorage.setItem("rota_aba_mot
 function setAbaCliente(aba){abaCliente = aba; localStorage.setItem("rota_aba_cliente", aba); render();}
 function esc(v){return String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[c] || c));}
 
-
-function idIgual(a,b){ return String(a ?? "") === String(b ?? ""); }
-function nomeIgual(a,b){ return normalizarTexto(a) && normalizarTexto(a) === normalizarTexto(b); }
-function statusFinalizado(status){
-  const s = normalizarTexto(status);
-  return s.includes("finalizada") || s.includes("finalizado") || s.includes("entregue");
-}
-function motoboyDoPedido(p, motoboy){
-  if(!p || !motoboy) return false;
-  const telPedido = somenteNumeros(p.motoboy_whatsapp || p.motoboy_telefone || "");
-  const telMotoboy = somenteNumeros(motoboy.telefone || motoboy.whats || "");
-  return idIgual(p.motoboy_id, motoboy.id) || nomeIgual(p.motoboy_nome, motoboy.nome) || (telPedido && telMotoboy && telPedido === telMotoboy);
-}
-function valorPedido(p){ return Number(p?.valor ?? p?.taxa_entrega ?? p?.valor_entrega ?? p?.preco ?? 0) || 0; }
-function pedidoPagoEmHistorico(pedidoId){
-  return historicoPagamentos.some(h => {
-    const ids = Array.isArray(h.pedidos_ids) ? h.pedidos_ids.map(String) : [];
-    return ids.includes(String(pedidoId)) || String(h.pedido_id || "") === String(pedidoId);
-  });
-}
-function corridasParaReceberMotoboy(motoboyId){
-  const motoboy = motoboys.find(m => idIgual(m.id, motoboyId)) || {id: motoboyId};
-  const porPedido = pedidos.filter(p =>
-    motoboyDoPedido(p, motoboy) &&
-    statusFinalizado(p.status) &&
-    p.pago_motoboy !== true &&
-    !pedidoPagoEmHistorico(p.id)
-  );
-
-  const idsJaNoPedido = new Set(porPedido.map(p => String(p.id)));
-  const porHistorico = historicoEntregas.filter(h =>
-    motoboyDoPedido(h, motoboy) &&
-    !idsJaNoPedido.has(String(h.pedido_id || h.id)) &&
-    h.pago_motoboy !== true &&
-    !pedidoPagoEmHistorico(h.pedido_id || h.id)
-  ).map(h => ({...h, id: h.pedido_id || h.id, status:"Entrega finalizada"}));
-
-  return [...porPedido, ...porHistorico];
-}
-function corridasAtivasMotoboy(motoboyId){
-  return pedidos.filter(p =>
-    motoboyDoPedido(p, motoboys.find(m => idIgual(m.id, motoboyId)) || {id: motoboyId}) &&
-    !p.pago_motoboy &&
-    !statusFinalizado(p.status) &&
-    p.status !== "Recusado pelo admin"
-  );
-}
-
 function entregasFinalizadasMotoboy(motoboyId){
   const motoboy = motoboys.find(m => idIgual(m.id, motoboyId)) || sessao || {id: motoboyId};
   const porPedido = pedidos.filter(p => motoboyDoPedido(p, motoboy) && statusFinalizado(p.status));
@@ -385,7 +331,7 @@ async function carregarDados(){
   // Históricos são opcionais. Se as tabelas ainda não existirem, o sistema continua funcionando
   // usando os próprios pedidos finalizados/pagos como histórico visual.
   const ent = await db.from("historico_entregas").select("*").order("id", {ascending:false});
-  historicoEntregas = ent.error ? pedidos.filter(p => statusFinalizado(p.status)) : (ent.data || []);
+  historicoEntregas = ent.error ? pedidos.filter(p => p.status === "Entrega finalizada") : (ent.data || []);
 
   const pag = await db.from("historico_pagamentos").select("*").order("id", {ascending:false});
   historicoPagamentos = pag.error ? pedidos.filter(p => p.pago_motoboy) : (pag.data || []);
@@ -394,9 +340,26 @@ async function carregarDados(){
     const totalAtual = pedidos.length;
     if(ultimoTotalPedidos > 0 && totalAtual > ultimoTotalPedidos){
       tocarSomNovaEntrega();
+      notificarNovaEntrega("Nova entrega no Rota Express", "Chegou uma nova entrega no painel.");
       alert("Nova entrega chegou no painel!");
     }
     ultimoTotalPedidos = totalAtual;
+  }
+
+  if(sessao && sessao.tipo === "motoboy"){
+    const liberadosMotoboy = pedidos
+      .filter(p => p.liberado && p.pagamento_status === "Pix confirmado" && !p.motoboy_id && !statusFinalizado(p.status))
+      .map(p => String(p.id))
+      .sort()
+      .join(",");
+
+    if(ultimoIdsLiberadosMotoboy && liberadosMotoboy && liberadosMotoboy !== ultimoIdsLiberadosMotoboy){
+      tocarSomNovaEntrega();
+      notificarNovaEntrega("Nova entrega disponível", "Abra o Rota Express e aceite a corrida.");
+    }
+
+    ultimoIdsLiberadosMotoboy = liberadosMotoboy;
+    localStorage.setItem("rota_ultimos_liberados_motoboy", ultimoIdsLiberadosMotoboy);
   }
 }
 
@@ -513,7 +476,7 @@ function blocoPixPedido(p){
   return `
     <div class="pixbox">
       <b>Pagamento via Pix Mercado Pago</b><br>
-      <div class="pixvalue">${dinheiro(valorPedido(p))}</div>
+      <div class="pixvalue">${dinheiro(p.valor)}</div>
       <p><b>Status:</b> ${p.pagamento_status || "Aguardando confirmação"}</p>
       <div id="${areaId}">
         <button class="yellow" onclick="gerarPixMercadoPago(${p.id})">Gerar QR Code Pix</button>
@@ -538,7 +501,7 @@ async function gerarPixMercadoPago(id){
       headers: {"Content-Type":"application/json"},
       body: JSON.stringify({
         pedidoId: p.id,
-        valor: valorPedido(p),
+        valor: Number(p.valor || 0),
         descricao: "Entrega Rota Express #" + p.id,
         nome: p.cliente_nome || "Cliente Rota Express",
         telefone: p.cliente_telefone || ""
@@ -566,7 +529,7 @@ async function gerarPixMercadoPago(id){
     area.innerHTML = `
       <p class="small">Não foi possível gerar o QR Code automático.</p>
       <p class="small"><b>Motivo:</b> ${e.message}</p>
-      <div class="pixvalue">${dinheiro(valorPedido(p))}</div>
+      <div class="pixvalue">${dinheiro(p.valor)}</div>
       Chave Pix manual: <b>${PIX_ROTA}</b><br>
       Nome: <b>${PIX_NOME}</b>
       <button class="yellow" onclick="copiar('${PIX_ROTA}')">Copiar chave Pix manual</button>
@@ -779,14 +742,13 @@ async function mudarStatus(id,status){
 
   if(status === "Entrega finalizada"){
     const p = pedidos.find(x => x.id === id);
-    const jaExisteHistorico = historicoEntregas.some(h => String(h.pedido_id || "") === String(id));
-    if(p && !jaExisteHistorico){
+    if(p){
       await db.from("historico_entregas").insert({
         pedido_id:id, cliente_nome:p.cliente_nome || "", motoboy_id:p.motoboy_id || sessao.id,
         motoboy_nome:p.motoboy_nome || sessao.nome || "",
         coleta:enderecoPedido(p,"coleta"), coleta_cidade:p.coleta_cidade || "", coleta_bairro:p.coleta_bairro || "", coleta_rua:p.coleta_rua || "",
         entrega:enderecoPedido(p,"entrega"), entrega_cidade:p.entrega_cidade || "", entrega_bairro:p.entrega_bairro || "", entrega_rua:p.entrega_rua || "",
-        valor:valorPedido(p), km:Number(p.km || 0), finalizado_em:agoraBR()
+        valor:Number(p.valor || 0), km:Number(p.km || 0), finalizado_em:agoraBR()
       });
     }
   }
@@ -813,19 +775,6 @@ async function pagarMotoboy(id){
   const ids = corridas.map(p=>p.id).filter(Boolean);
   const pagoEm = agoraBR();
 
-  if(ids.length){
-    const { error } = await db.from("pedidos").update({
-      pago_motoboy:true,
-      data_pagamento: pagoEm
-    }).in("id", ids);
-    if(error){alert("Erro ao zerar saldo no pedido: " + error.message); return;}
-
-    await db.from("historico_entregas").update({
-      pago_motoboy:true,
-      data_pagamento:pagoEm
-    }).in("pedido_id", ids);
-  }
-
   const pagamento = {
     motoboy_id:id,
     motoboy_nome:m.nome,
@@ -837,13 +786,28 @@ async function pagarMotoboy(id){
     criado_em:new Date().toISOString()
   };
 
+  // Primeiro registra no histórico. Só depois zera o saldo.
+  // Assim, se o Supabase bloquear o histórico, o pagamento não some.
   const { error: erroHistorico } = await db.from("historico_pagamentos").insert(pagamento);
   if(erroHistorico){
     console.error("Erro ao registrar histórico de pagamento:", erroHistorico);
-    alert("O saldo foi zerado, mas não consegui salvar no Histórico de pagamentos. Rode o supabase_atualizacao.sql novo e tente novamente. Erro: " + erroHistorico.message);
+    alert("Não consegui salvar no Histórico de pagamentos. O saldo NÃO foi zerado. Rode o supabase_atualizacao.sql novo no Supabase e tente novamente. Erro: " + erroHistorico.message);
     await carregarDados();
     render();
     return;
+  }
+
+  if(ids.length){
+    const { error } = await db.from("pedidos").update({
+      pago_motoboy:true,
+      data_pagamento: pagoEm
+    }).in("id", ids);
+    if(error){alert("O histórico foi salvo, mas deu erro ao zerar saldo no pedido: " + error.message); return;}
+
+    await db.from("historico_entregas").update({
+      pago_motoboy:true,
+      data_pagamento:pagoEm
+    }).in("pedido_id", ids);
   }
 
   await carregarDados();
@@ -852,9 +816,9 @@ async function pagarMotoboy(id){
 }
 
 async function deletarMotoboy(id){
-  const m = motoboys.find(x => idIgual(x.id,id));
+  const m = motoboys.find(x => String(x.id) === String(id));
   if(!m) return;
-  const temCorridaAtiva = pedidos.some(p => idIgual(p.motoboy_id,id) && !statusFinalizado(p.status) && !p.pago_motoboy);
+  const temCorridaAtiva = pedidos.some(p => String(p.motoboy_id) === String(id) && p.status !== "Entrega finalizada" && !p.pago_motoboy);
   if(temCorridaAtiva){alert("Esse motoboy tem corrida ativa. Finalize ou remova a corrida antes de deletar."); return;}
   if(!confirm("Deletar motoboy " + m.nome + "?")) return;
   const soft = await db.from("usuarios").update({ativo:false}).eq("id", id);
@@ -920,16 +884,13 @@ function clienteHTML(){
 }
 
 function adminHTML(){
-  let total = pedidos.reduce((t,p)=>t+valorPedido(p),0);
-  let corridasAbertas = motoboys.flatMap(m => corridasParaReceberMotoboy(m.id));
-  let rota = corridasAbertas.reduce((t,p)=>t+(valorPedido(p)*TAXA_ROTA/100),0);
-  let aPagar = corridasAbertas.reduce((t,p)=>t+(valorPedido(p)*(100-TAXA_ROTA)/100),0);
-  const pedidosAbertos = pedidosAbertosAdmin();
-  const historicoAdmin = historicoEntregasAdmin();
+  let total = pedidos.reduce((t,p)=>t+Number(p.valor || 0),0);
+  let rota = pedidos.filter(p=>p.status==="Entrega finalizada" && !p.pago_motoboy).reduce((t,p)=>t+(Number(p.valor || 0)*TAXA_ROTA/100),0);
+  let aPagar = pedidos.filter(p=>p.status==="Entrega finalizada" && !p.pago_motoboy).reduce((t,p)=>t+(Number(p.valor || 0)*(100-TAXA_ROTA)/100),0);
   const conteudo = abaAdmin === "pedidos" ? `
-    <h2>Pedidos / acompanhamento</h2>${pedidosAbertos.map(cardPedidoAdmin).join("") || "<p>Nenhum pedido em aberto.</p>"}` :
+    <h2>Pedidos para aprovar</h2>${pedidos.map(cardPedidoAdmin).join("") || "<p>Nenhum pedido.</p>"}` :
     abaAdmin === "entregas" ? `
-    <h2>Histórico de entregas</h2>${historicoAdmin.map(cardHistoricoEntrega).join("") || "<p>Nenhuma entrega finalizada.</p>"}` :
+    <h2>Histórico de entregas</h2>${historicoEntregas.map(cardHistoricoEntrega).join("") || "<p>Nenhuma entrega finalizada.</p>"}` :
     abaAdmin === "pagamentos" ? `
     <h2>Histórico de pagamentos</h2>${historicoPagamentos.map(cardHistoricoPagamento).join("") || "<p>Nenhum pagamento registrado.</p>"}` : `
     <h2>Motoboys cadastrados</h2>${motoboys.map(cardMotoboyAdmin).join("") || "<p>Nenhum motoboy.</p>"}`;
@@ -955,19 +916,6 @@ function adminHTML(){
     </div>
     ${conteudo}
   `;
-}
-
-function pedidosAbertosAdmin(){
-  return pedidos.filter(p => !statusFinalizado(p.status));
-}
-
-function historicoEntregasAdmin(){
-  const finalizadosPedidos = pedidos.filter(p => statusFinalizado(p.status));
-  const ids = new Set(finalizadosPedidos.map(p => String(p.id)));
-  const somenteHistorico = historicoEntregas
-    .filter(h => !ids.has(String(h.pedido_id || h.id)))
-    .map(h => ({...h, status:"Entrega finalizada"}));
-  return [...finalizadosPedidos, ...somenteHistorico].sort((a,b) => Number((b.pedido_id || b.id) || 0) - Number((a.pedido_id || a.id) || 0));
 }
 
 function motoboyHTML(){
@@ -1023,12 +971,12 @@ function baseCard(p){
     <span class="tempo">⏱️ ${textoTempoEntrega(p)}</span>
     <p><b>Pagamento:</b> Pix — ${p.pagamento_status || ""}</p>
     ${p.pago_motoboy ? `<p><b>Motoboy:</b> Pago em ${p.data_pagamento || ""}</p>` : ""}
-    <h3>${dinheiro(valorPedido(p))}</h3>
+    <h3>${dinheiro(p.valor)}</h3>
   `;
 }
 
 function cardPedidoCliente(p){
-  const entregue = statusFinalizado(p.status) ? `<div class="notice">✅ Entrega entregue/finalizada pelo motoboy.</div>` : "";
+  const entregue = p.status === "Entrega finalizada" ? `<div class="notice">✅ Entrega entregue/finalizada pelo motoboy.</div>` : "";
   return `<div class="order"><b>#${p.id}</b> <span class="badge">${p.status}</span>${entregue}${baseCard(p)}${blocoPixPedido(p)}</div>`;
 }
 
@@ -1063,7 +1011,7 @@ function cardPedidoMotoboy(p){
     ${baseCard(p)}
     <a class="btn gray" target="_blank" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(enderecoPedido(p,"entrega"))}">Abrir rota no Maps</a>
     ${!p.motoboy_id?`<button class="yellow" onclick="aceitarPedido(${p.id})">Aceitar corrida</button>`:""}
-    ${idIgual(p.motoboy_id,sessao.id)?`
+    ${String(p.motoboy_id)===String(sessao.id)?`
       <button class="blue" onclick="mudarStatus(${p.id},'Pedido coletado')">Pedido coletado</button>
       <button class="green" onclick="mudarStatus(${p.id},'Entrega finalizada')">Finalizar entrega</button>`:""}
   </div>`;
@@ -1078,7 +1026,7 @@ function cardHistoricoEntrega(h){
     <p><b>Entrega:</b> ${enderecoPedido(h,"entrega")}</p>
     <p><b>KM:</b> ${h.km || ""}</p>
     <p><b>Finalizado em:</b> ${h.finalizado_em || h.data_finalizacao || ""}</p>
-    <h3>${dinheiro(valorPedido(h))}</h3>
+    <h3>${dinheiro(h.valor)}</h3>
   </div>`;
 }
 
@@ -1104,9 +1052,9 @@ function cardHistoricoPagamento(h){
 }
 
 function cardMotoboyAdmin(m){
-  let abertos = corridasParaReceberMotoboy(m.id);
-  let pagos = pedidos.filter(p=>idIgual(p.motoboy_id,m.id) && p.pago_motoboy);
-  let bruto = abertos.reduce((t,p)=>t+valorPedido(p),0);
+  let abertos = pedidos.filter(p=>String(p.motoboy_id)===String(m.id) && p.status==="Entrega finalizada" && !p.pago_motoboy);
+  let pagos = pedidos.filter(p=>String(p.motoboy_id)===String(m.id) && p.pago_motoboy);
+  let bruto = abertos.reduce((t,p)=>t+Number(p.valor || 0),0);
   let liquido = bruto*(100-TAXA_ROTA)/100;
   return `<div class="order">
     <b>${m.nome}</b>
@@ -1160,7 +1108,6 @@ async function iniciar(){
   }, 15000);
 }
 
-iniciar();
 
 </script>
 </body>

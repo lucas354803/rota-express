@@ -17,12 +17,40 @@ let abaAdmin = localStorage.getItem("rota_aba_admin") || "pedidos";
 let abaMotoboy = localStorage.getItem("rota_aba_motoboy") || "ativas";
 let abaCliente = localStorage.getItem("rota_aba_cliente") || "ativas";
 let ultimoTotalPedidos = 0;
-let somLiberado = false;
+let somLiberado = localStorage.getItem("rota_som_liberado") === "true";
 let intervaloAtualizacao = null;
+let ultimoIdsLiberadosMotoboy = localStorage.getItem("rota_ultimos_liberados_motoboy") || "";
 
 
-function liberarSom(){
+async function liberarSom(){
   somLiberado = true;
+  localStorage.setItem("rota_som_liberado", "true");
+
+  if("Notification" in window && Notification.permission === "default"){
+    try{ await Notification.requestPermission(); }catch(e){}
+  }
+
+  if("serviceWorker" in navigator){
+    try{ await navigator.serviceWorker.register("/sw.js"); }catch(e){}
+  }
+}
+
+function notificarNovaEntrega(titulo, corpo){
+  if("Notification" in window && Notification.permission === "granted"){
+    try{
+      navigator.serviceWorker?.ready?.then(reg => {
+        reg.showNotification(titulo, {
+          body: corpo,
+          icon: "/icon-192.png",
+          badge: "/icon-192.png",
+          vibrate: [200, 100, 200],
+          tag: "nova-entrega-rota-express"
+        });
+      }).catch(() => new Notification(titulo, { body: corpo, icon: "/icon-192.png" }));
+    }catch(e){
+      try{ new Notification(titulo, { body: corpo, icon: "/icon-192.png" }); }catch(err){}
+    }
+  }
 }
 
 function tocarSomNovaEntrega(){
@@ -263,9 +291,26 @@ async function carregarDados(){
     const totalAtual = pedidos.length;
     if(ultimoTotalPedidos > 0 && totalAtual > ultimoTotalPedidos){
       tocarSomNovaEntrega();
+      notificarNovaEntrega("Nova entrega no Rota Express", "Chegou uma nova entrega no painel.");
       alert("Nova entrega chegou no painel!");
     }
     ultimoTotalPedidos = totalAtual;
+  }
+
+  if(sessao && sessao.tipo === "motoboy"){
+    const liberadosMotoboy = pedidos
+      .filter(p => p.liberado && p.pagamento_status === "Pix confirmado" && !p.motoboy_id && !statusFinalizado(p.status))
+      .map(p => String(p.id))
+      .sort()
+      .join(",");
+
+    if(ultimoIdsLiberadosMotoboy && liberadosMotoboy && liberadosMotoboy !== ultimoIdsLiberadosMotoboy){
+      tocarSomNovaEntrega();
+      notificarNovaEntrega("Nova entrega disponível", "Abra o Rota Express e aceite a corrida.");
+    }
+
+    ultimoIdsLiberadosMotoboy = liberadosMotoboy;
+    localStorage.setItem("rota_ultimos_liberados_motoboy", ultimoIdsLiberadosMotoboy);
   }
 }
 
