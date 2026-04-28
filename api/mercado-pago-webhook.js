@@ -1,4 +1,3 @@
-import { notificarMotoboysNovaEntrega } from "./enviar-notificacao-entrega.js";
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://dbindrrbdllfozqvmawx.supabase.co";
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || "sb_publishable_w8lHZFJkXNGcyoThKTjdIA_FtOQ3uG4";
 
@@ -55,13 +54,6 @@ export default async function handler(req, res) {
           status: "Liberado para motoboys"
         })
       });
-
-      // Envia aviso no celular dos motoboys assim que o Pix é aprovado.
-      try {
-        await notificarMotoboysNovaEntrega(pedidoId);
-      } catch (erroNotificacao) {
-        console.log("Pix aprovado, mas a notificação não foi enviada:", erroNotificacao?.message || erroNotificacao);
-      }
     } else {
       await supabaseRest(`pedidos?id=eq.${encodeURIComponent(pedidoId)}`, {
         method: "PATCH",

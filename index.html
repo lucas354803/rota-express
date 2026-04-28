@@ -5,6 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="robots" content="noindex, nofollow" />
   <title>Rota Express Entregas</title>
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#ffd21f" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Rota Express" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="apple-touch-icon" href="/icon-192.png" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     *{box-sizing:border-box}
@@ -34,6 +40,8 @@
     .tabs button{margin-top:0;padding:10px;font-size:13px}
     .notice{border-left:5px solid #16a34a;background:#eaffef;color:#111;border-radius:14px;padding:12px;margin:10px 0;font-weight:800}
     .warn{border-left:5px solid #ff9900;background:#fff4d6;color:#111;border-radius:14px;padding:12px;margin:10px 0}
+    #btnInstalarApp{position:fixed;left:16px;right:16px;bottom:14px;z-index:9999;background:#ffd21f;color:#111;box-shadow:0 12px 30px rgba(0,0,0,.35)}
+    @media (display-mode: standalone){#btnInstalarApp{display:none!important}}
   </style>
 </head>
 <body>
@@ -84,8 +92,43 @@
     <div id="motoboyArea" class="hide"></div>
   </section>
 </div>
+<button id="btnInstalarApp" class="yellow hide">📲 Instalar app Rota Express</button>
 
 <script>
+
+let eventoInstalarPWA = null;
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch((erro) => console.log("Erro ao registrar PWA", erro));
+  });
+}
+
+window.addEventListener("beforeinstallprompt", (event) => {
+  event.preventDefault();
+  eventoInstalarPWA = event;
+  const botao = document.getElementById("btnInstalarApp");
+  if (botao) botao.classList.remove("hide");
+});
+
+window.addEventListener("appinstalled", () => {
+  const botao = document.getElementById("btnInstalarApp");
+  if (botao) botao.classList.add("hide");
+  eventoInstalarPWA = null;
+});
+
+document.addEventListener("click", async (event) => {
+  if (!event.target || event.target.id !== "btnInstalarApp") return;
+  if (!eventoInstalarPWA) {
+    alert("No celular, abra o menu do navegador e toque em Adicionar à tela inicial ou Instalar app.");
+    return;
+  }
+  eventoInstalarPWA.prompt();
+  await eventoInstalarPWA.userChoice;
+  eventoInstalarPWA = null;
+  const botao = document.getElementById("btnInstalarApp");
+  if (botao) botao.classList.add("hide");
+});
 
 const SUPABASE_URL = "https://dbindrrbdllfozqvmawx.supabase.co";
 const SUPABASE_KEY = "sb_publishable_w8lHZFJkXNGcyoThKTjdIA_FtOQ3uG4";
@@ -223,78 +266,6 @@ function explicarCalculo(km){
 
   return texto;
 }
-async function buscarChavePublicaPush(){
-  const resposta = await fetch('/api/push-public-key');
-  const data = await resposta.json();
-  return data.publicKey || '';
-}
-
-function urlBase64ToUint8Array(base64String){
-  const padding = '='.repeat((4 - base64String.length % 4) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const rawData = window.atob(base64);
-  return Uint8Array.from([...rawData].map(char => char.charCodeAt(0)));
-}
-
-async function ativarNotificacoes(){
-  if(!sessao || sessao.tipo !== 'motoboy'){
-    alert('Entre como motoboy para ativar as notificações.');
-    return;
-  }
-
-  if(!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)){
-    alert('Este celular/navegador não suporta notificação push. Use Chrome/Edge no Android ou instale o site na tela inicial.');
-    return;
-  }
-
-  const permissao = await Notification.requestPermission();
-  if(permissao !== 'granted'){
-    alert('Você precisa permitir as notificações no celular.');
-    return;
-  }
-
-  const chavePublica = await buscarChavePublicaPush();
-  if(!chavePublica){
-    alert('Falta configurar a chave VAPID_PUBLIC_KEY no servidor.');
-    return;
-  }
-
-  const registro = await navigator.serviceWorker.register('/rota-express-sw.js');
-  let subscription = await registro.pushManager.getSubscription();
-  if(!subscription){
-    subscription = await registro.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(chavePublica)
-    });
-  }
-
-  const resposta = await fetch('/api/salvar-inscricao-push', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({usuario_id: sessao.id, subscription})
-  });
-
-  const data = await resposta.json().catch(() => ({}));
-  if(!resposta.ok){
-    alert('Erro ao salvar notificação: ' + (data.message || data.error || 'erro desconhecido'));
-    return;
-  }
-
-  alert('Notificações ativadas com sucesso!');
-}
-
-async function enviarNotificacaoPedidoLiberado(id){
-  try{
-    await fetch('/api/enviar-notificacao-entrega', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({pedido_id:id})
-    });
-  }catch(e){
-    console.log('Não foi possível enviar notificação agora', e);
-  }
-}
-
 function hoje(){return new Date().toISOString().slice(0,10)}
 function hora(){return new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}
 function agoraBR(){return new Date().toLocaleString("pt-BR")}
@@ -768,7 +739,6 @@ async function criarPedidoCliente(){
 async function confirmarPix(id){
   const { error } = await db.from("pedidos").update({pagamento_status:"Pix confirmado", liberado:true, status:"Liberado para motoboys"}).eq("id", id);
   if(error){alert("Erro: " + error.message); return;}
-  await enviarNotificacaoPedidoLiberado(id);
   await carregarDados(); render();
 }
 
@@ -778,7 +748,6 @@ async function liberarPedido(id){
 
   const { error } = await db.from("pedidos").update({liberado:true,status:"Liberado para motoboys"}).eq("id", id);
   if(error){alert("Erro: " + error.message); return;}
-  await enviarNotificacaoPedidoLiberado(id);
   await carregarDados(); render();
 }
 
@@ -1027,7 +996,6 @@ function motoboyHTML(){
       <p><b>WhatsApp:</b> ${sessao.whats}</p>
       <p><b>Pix:</b> ${sessao.pix || "Não informado"}</p>
       <p><b>Pagamento:</b> todo dia às 00:00</p>
-      <button class="green" onclick="ativarNotificacoes()">🔔 Ativar notificações no celular</button>
       <button class="gray" onclick="carregarDados().then(render)">Atualizar corridas</button>
       <div class="tabs">
         <button class="${abaMotoboy==='ativas'?'yellow':'gray'}" onclick="setAbaMotoboy('ativas')">Corridas</button>

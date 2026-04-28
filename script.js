@@ -135,78 +135,6 @@ function explicarCalculo(km){
 
   return texto;
 }
-async function buscarChavePublicaPush(){
-  const resposta = await fetch('/api/push-public-key');
-  const data = await resposta.json();
-  return data.publicKey || '';
-}
-
-function urlBase64ToUint8Array(base64String){
-  const padding = '='.repeat((4 - base64String.length % 4) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const rawData = window.atob(base64);
-  return Uint8Array.from([...rawData].map(char => char.charCodeAt(0)));
-}
-
-async function ativarNotificacoes(){
-  if(!sessao || sessao.tipo !== 'motoboy'){
-    alert('Entre como motoboy para ativar as notificações.');
-    return;
-  }
-
-  if(!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)){
-    alert('Este celular/navegador não suporta notificação push. Use Chrome/Edge no Android ou instale o site na tela inicial.');
-    return;
-  }
-
-  const permissao = await Notification.requestPermission();
-  if(permissao !== 'granted'){
-    alert('Você precisa permitir as notificações no celular.');
-    return;
-  }
-
-  const chavePublica = await buscarChavePublicaPush();
-  if(!chavePublica){
-    alert('Falta configurar a chave VAPID_PUBLIC_KEY no servidor.');
-    return;
-  }
-
-  const registro = await navigator.serviceWorker.register('/rota-express-sw.js');
-  let subscription = await registro.pushManager.getSubscription();
-  if(!subscription){
-    subscription = await registro.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(chavePublica)
-    });
-  }
-
-  const resposta = await fetch('/api/salvar-inscricao-push', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({usuario_id: sessao.id, subscription})
-  });
-
-  const data = await resposta.json().catch(() => ({}));
-  if(!resposta.ok){
-    alert('Erro ao salvar notificação: ' + (data.message || data.error || 'erro desconhecido'));
-    return;
-  }
-
-  alert('Notificações ativadas com sucesso!');
-}
-
-async function enviarNotificacaoPedidoLiberado(id){
-  try{
-    await fetch('/api/enviar-notificacao-entrega', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({pedido_id:id})
-    });
-  }catch(e){
-    console.log('Não foi possível enviar notificação agora', e);
-  }
-}
-
 function hoje(){return new Date().toISOString().slice(0,10)}
 function hora(){return new Date().toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}
 function agoraBR(){return new Date().toLocaleString("pt-BR")}
@@ -680,7 +608,6 @@ async function criarPedidoCliente(){
 async function confirmarPix(id){
   const { error } = await db.from("pedidos").update({pagamento_status:"Pix confirmado", liberado:true, status:"Liberado para motoboys"}).eq("id", id);
   if(error){alert("Erro: " + error.message); return;}
-  await enviarNotificacaoPedidoLiberado(id);
   await carregarDados(); render();
 }
 
@@ -690,7 +617,6 @@ async function liberarPedido(id){
 
   const { error } = await db.from("pedidos").update({liberado:true,status:"Liberado para motoboys"}).eq("id", id);
   if(error){alert("Erro: " + error.message); return;}
-  await enviarNotificacaoPedidoLiberado(id);
   await carregarDados(); render();
 }
 
@@ -941,7 +867,6 @@ function motoboyHTML(){
       <p><b>WhatsApp:</b> ${sessao.whats}</p>
       <p><b>Pix:</b> ${sessao.pix || "Não informado"}</p>
       <p><b>Pagamento:</b> todo dia às 00:00</p>
-      <button class="green" onclick="ativarNotificacoes()">🔔 Ativar notificações no celular</button>
       <button class="gray" onclick="carregarDados().then(render)">Atualizar corridas</button>
       <div class="tabs">
         <button class="${abaMotoboy==='ativas'?'yellow':'gray'}" onclick="setAbaMotoboy('ativas')">Corridas</button>

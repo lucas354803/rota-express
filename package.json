@@ -2,8 +2,5 @@
   "name": "rota-express",
   "version": "1.0.0",
   "private": true,
-  "type": "module",
-  "dependencies": {
-    "web-push": "^3.6.7"
-  }
+  "type": "module"
 }
