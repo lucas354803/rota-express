@@ -3,7 +3,7 @@ const SUPABASE_URL = "https://dbindrrbdllfozqvmawx.supabase.co";
 const SUPABASE_KEY = "sb_publishable_w8lHZFJkXNGcyoThKTjdIA_FtOQ3uG4";
 const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-const TAXA_ROTA = 20;
+const TAXA_ROTA = 13;
 const PIX_ROTA = "48999117385";
 const PIX_NOME = "LUCAS ALVES FERNANDES";
 
