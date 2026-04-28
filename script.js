@@ -3,7 +3,7 @@ const SUPABASE_URL = "https://dbindrrbdllfozqvmawx.supabase.co";
 const SUPABASE_KEY = "sb_publishable_w8lHZFJkXNGcyoThKTjdIA_FtOQ3uG4";
 const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-const TAXA_ROTA = 20;
+const TAXA_ROTA = 15;
 const PIX_ROTA = "48999117385";
 const PIX_NOME = "LUCAS ALVES FERNANDES";
 
@@ -886,6 +886,14 @@ function historicoEntregasAdmin(){
   return [...finalizadosPedidos, ...somenteHistorico].sort((a,b) => Number((b.pedido_id || b.id) || 0) - Number((a.pedido_id || a.id) || 0));
 }
 
+
+function statusNotificacaoHTML(){
+  const suporta = ("Notification" in window);
+  const perm = suporta ? Notification.permission : "indisponivel";
+  let texto = "Notificações: " + (perm === "granted" ? "ativadas" : perm === "denied" ? "bloqueadas" : "não ativadas");
+  return `<button class="yellow" onclick="liberarSom().then(()=>{alert('Notificação ativada. Quando chegar entrega nova, o celular vai avisar.'); render();})">🔔 Ativar notificação de entrega</button><p class="small">${texto}. No celular, permita as notificações do navegador.</p>`;
+}
+
 function motoboyHTML(){
   let liberados = pedidos.filter(p=>p.liberado && p.pagamento_status==="Pix confirmado" && !p.motoboy_id && !statusFinalizado(p.status));
   let meus = pedidos.filter(p=>motoboyDoPedido(p, sessao) && !statusFinalizado(p.status) && !p.pago_motoboy);
@@ -913,6 +921,7 @@ function motoboyHTML(){
       <p><b>Pix:</b> ${sessao.pix || "Não informado"}</p>
       <p><b>Pagamento:</b> todo dia às 00:00</p>
       <button class="gray" onclick="carregarDados().then(render)">Atualizar corridas</button>
+      ${statusNotificacaoHTML()}
       <div class="tabs">
         <button class="${abaMotoboy==='ativas'?'yellow':'gray'}" onclick="setAbaMotoboy('ativas')">Corridas</button>
         <button class="${abaMotoboy==='finalizadas'?'yellow':'gray'}" onclick="setAbaMotoboy('finalizadas')">Entregas finalizadas</button>
