@@ -802,7 +802,9 @@ function adminHTML(){
     abaAdmin === "entregas" ? `
     <h2>Histórico de entregas</h2>${historicoAdmin.map(cardHistoricoEntrega).join("") || "<p>Nenhuma entrega finalizada.</p>"}` :
     abaAdmin === "pagamentos" ? `
-    <h2>Histórico de pagamentos</h2>${historicoPagamentos.map(cardHistoricoPagamento).join("") || "<p>Nenhum pagamento registrado.</p>"}` : `
+    <h2>Histórico de pagamentos</h2>${historicoPagamentos.map(cardHistoricoPagamento).join("") || "<p>Nenhum pagamento registrado.</p>"}` :
+    abaAdmin === "clientes" ? `
+    <h2>Clientes cadastrados</h2>${clientes.map(cardClienteAdmin).join("") || "<p>Nenhum cliente cadastrado.</p>"}` : `
     <h2>Motoboys cadastrados</h2>${motoboys.map(cardMotoboyAdmin).join("") || "<p>Nenhum motoboy.</p>"}`;
   return `
     <div class="stats">
@@ -822,6 +824,7 @@ function adminHTML(){
         <button class="${abaAdmin==='entregas'?'yellow':'gray'}" onclick="setAbaAdmin('entregas')">Hist. entregas</button>
         <button class="${abaAdmin==='pagamentos'?'yellow':'gray'}" onclick="setAbaAdmin('pagamentos')">Hist. pagamentos</button>
         <button class="${abaAdmin==='motoboys'?'yellow':'gray'}" onclick="setAbaAdmin('motoboys')">Motoboys</button>
+        <button class="${abaAdmin==='clientes'?'yellow':'gray'}" onclick="setAbaAdmin('clientes')">Clientes</button>
       </div>
     </div>
     ${conteudo}
@@ -971,6 +974,32 @@ function cardHistoricoPagamento(h){
     <p><b>Taxa Rota:</b> ${h.taxa_rota || TAXA_ROTA}%</p>
     <p><b>Data/hora:</b> ${h.pago_em || h.data_pagamento || ""}</p>
     <p><b>Pedidos:</b> ${Array.isArray(h.pedidos_ids) ? h.pedidos_ids.join(", ") : (h.pedido_id || "")}</p>
+  </div>`;
+}
+
+function entregasDoCliente(cliente){
+  return pedidos.filter(p =>
+    idIgual(p.cliente_id, cliente.id) ||
+    nomeIgual(p.cliente_nome, cliente.nome) ||
+    (somenteNumeros(p.cliente_telefone || "") && somenteNumeros(cliente.telefone || "") && somenteNumeros(p.cliente_telefone || "") === somenteNumeros(cliente.telefone || ""))
+  );
+}
+
+function cardClienteAdmin(c){
+  const lista = entregasDoCliente(c);
+  const finalizadas = lista.filter(p => statusFinalizado(p.status)).length;
+  const abertas = lista.filter(p => !statusFinalizado(p.status)).length;
+  const totalGasto = lista.reduce((t,p)=>t+valorPedido(p),0);
+
+  return `<div class="order">
+    <b>${esc(c.nome || "Cliente")}</b> <span class="badge">Cliente cadastrado</span>
+    <p><b>WhatsApp:</b> ${esc(c.telefone || "Não informado")}</p>
+    <p><b>Código de acesso:</b> ${esc(c.senha || "")}</p>
+    <p><b>Total de entregas:</b> ${lista.length}</p>
+    <p><b>Em aberto:</b> ${abertas}</p>
+    <p><b>Finalizadas:</b> ${finalizadas}</p>
+    <h3>Total movimentado: ${dinheiro(totalGasto)}</h3>
+    <button class="yellow" onclick="copiar('${esc(c.telefone || "")}')">Copiar WhatsApp</button>
   </div>`;
 }
 
