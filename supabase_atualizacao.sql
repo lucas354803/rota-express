@@ -186,3 +186,13 @@ alter table if exists public.pedidos disable row level security;
 -- 1) Aguardando pagamento Pix
 -- 2) Pix confirmado + Liberado para motoboys
 -- 3) Aceito pelo motoboy / Pedido coletado / Entrega finalizada
+
+
+-- RASTREAMENTO EM TEMPO REAL
+-- Campos usados para mostrar a localização do motoboy no mapa do cliente/admin.
+alter table if exists public.pedidos
+  add column if not exists motoboy_lat numeric,
+  add column if not exists motoboy_lng numeric,
+  add column if not exists rastreamento_atualizado_em text;
+
+grant select, insert, update, delete on public.pedidos to anon, authenticated;

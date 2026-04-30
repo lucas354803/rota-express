@@ -19,6 +19,9 @@ let abaCliente = localStorage.getItem("rota_aba_cliente") || "ativas";
 let ultimoTotalPedidos = 0;
 let somLiberado = false;
 let intervaloAtualizacao = null;
+let rastreamentoWatchId = null;
+let rastreamentoPedidoId = localStorage.getItem("rota_rastreamento_pedido_id") || null;
+let mapasRastreamento = {};
 
 
 function liberarSom(){
@@ -85,6 +88,78 @@ function textoTempoEntrega(p){
   }
 
   return "Criado há " + calcularTempo(p.criado_em);
+}
+
+function coordenadasPedido(p){
+  const lat = Number(p?.motoboy_lat ?? p?.lat ?? p?.latitude ?? 0);
+  const lng = Number(p?.motoboy_lng ?? p?.lng ?? p?.longitude ?? 0);
+  if(!lat || !lng || Number.isNaN(lat) || Number.isNaN(lng)) return null;
+  return {lat, lng};
+}
+function podeRastrearPedido(p){
+  if(!p || statusFinalizado(p.status)) return false;
+  return p.status === "Aceito pelo motoboy" || p.status === "Pedido coletado" || !!p.motoboy_id;
+}
+function blocoRastreamento(p){
+  if(!podeRastrearPedido(p)) return `<div class="rastreamentoBox"><b>📍 Rastreamento:</b><br><span class="small">Disponível quando o motoboy aceitar a corrida.</span></div>`;
+  const coord = coordenadasPedido(p);
+  const horaLoc = p.rastreamento_atualizado_em || p.tracking_at || p.localizacao_atualizada_em || "";
+  const mapa = coord ? `<div id="mapa_pedido_${p.id}" class="mapaRota" data-lat="${coord.lat}" data-lng="${coord.lng}"></div>` : "";
+  const texto = coord ? `<span class="small">Última localização recebida${horaLoc ? `: ${horaLoc}` : ""}</span>` : `<span class="small">Aguardando o motoboy iniciar o rastreamento pelo celular.</span>`;
+  return `<div class="rastreamentoBox"><b>📍 Rastreamento em tempo real</b><br>${texto}${mapa}</div>`;
+}
+function inicializarMapas(){
+  if(typeof L === "undefined") return;
+  document.querySelectorAll(".mapaRota").forEach(el => {
+    const lat = Number(el.dataset.lat), lng = Number(el.dataset.lng);
+    if(!lat || !lng) return;
+    if(mapasRastreamento[el.id]){
+      mapasRastreamento[el.id].marker.setLatLng([lat, lng]);
+      mapasRastreamento[el.id].map.setView([lat, lng], mapasRastreamento[el.id].map.getZoom() || 15);
+      return;
+    }
+    const map = L.map(el.id, {scrollWheelZoom:false}).setView([lat, lng], 15);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {maxZoom:19, attribution:"© OpenStreetMap"}).addTo(map);
+    const marker = L.marker([lat, lng]).addTo(map).bindPopup("Motoboy aqui");
+    mapasRastreamento[el.id] = {map, marker};
+    setTimeout(() => map.invalidateSize(), 250);
+  });
+}
+async function atualizarLocalizacaoPedido(pedidoId, lat, lng){
+  const agora = new Date().toLocaleString("pt-BR");
+  const { error } = await db.from("pedidos").update({motoboy_lat:lat, motoboy_lng:lng, rastreamento_atualizado_em:agora}).eq("id", pedidoId);
+  if(error){
+    console.error("Erro ao atualizar rastreamento", error);
+    alert("Erro ao salvar localização. Rode o supabase_atualizacao.sql novo no Supabase. Erro: " + error.message);
+    pararRastreamento(false);
+  }
+}
+async function iniciarRastreamento(pedidoId){
+  if(!navigator.geolocation){ alert("Esse celular/navegador não suporta GPS."); return; }
+  if(rastreamentoWatchId !== null){ navigator.geolocation.clearWatch(rastreamentoWatchId); }
+  rastreamentoPedidoId = String(pedidoId);
+  localStorage.setItem("rota_rastreamento_pedido_id", rastreamentoPedidoId);
+  alert("Rastreamento iniciado. Mantenha o app aberto durante a entrega e permita o GPS.");
+  rastreamentoWatchId = navigator.geolocation.watchPosition(async (pos) => {
+    const lat = Number(pos.coords.latitude.toFixed(6));
+    const lng = Number(pos.coords.longitude.toFixed(6));
+    await atualizarLocalizacaoPedido(pedidoId, lat, lng);
+  }, (erro) => {
+    alert("Não consegui pegar sua localização. Ative o GPS e permita localização para o navegador. Erro: " + erro.message);
+  }, {enableHighAccuracy:true, maximumAge:5000, timeout:15000});
+}
+function pararRastreamento(mostrar=true){
+  if(rastreamentoWatchId !== null && navigator.geolocation){ navigator.geolocation.clearWatch(rastreamentoWatchId); }
+  rastreamentoWatchId = null;
+  rastreamentoPedidoId = null;
+  localStorage.removeItem("rota_rastreamento_pedido_id");
+  if(mostrar) alert("Rastreamento pausado.");
+}
+function retomarRastreamentoSePreciso(){
+  if(!sessao || sessao.tipo !== "motoboy" || !rastreamentoPedidoId || rastreamentoWatchId !== null) return;
+  const p = pedidos.find(x => String(x.id) === String(rastreamentoPedidoId));
+  if(p && !statusFinalizado(p.status) && motoboyDoPedido(p, sessao)) iniciarRastreamento(p.id);
+  else { localStorage.removeItem("rota_rastreamento_pedido_id"); rastreamentoPedidoId = null; }
 }
 
 function dinheiro(v){return Number(v||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL"})}
@@ -631,6 +706,7 @@ async function aceitarPedido(id){
     status:"Aceito pelo motoboy",
     motoboy_id:sessao.id,
     motoboy_nome:sessao.nome,
+    rastreamento_atualizado_em:null,
     liberado:false
   }).eq("id", id);
   if(error){alert("Erro: " + error.message); return;}
@@ -642,9 +718,15 @@ async function mudarStatus(id,status){
   if(status === "Entrega finalizada"){
     extra.data_finalizacao = agoraBR();
     extra.liberado = false;
+    extra.rastreamento_atualizado_em = "Rastreamento finalizado em " + agoraBR();
   }
   const { error } = await db.from("pedidos").update({status, ...extra}).eq("id", id);
   if(error){alert("Erro: " + error.message); return;}
+
+  if(status === "Entrega finalizada" && idIgual(rastreamentoPedidoId, id)){
+    if(rastreamentoWatchId !== null && navigator.geolocation){ navigator.geolocation.clearWatch(rastreamentoWatchId); }
+    rastreamentoWatchId = null; rastreamentoPedidoId = null; localStorage.removeItem("rota_rastreamento_pedido_id");
+  }
 
   if(status === "Entrega finalizada"){
     const p = pedidos.find(x => x.id === id);
@@ -903,7 +985,7 @@ function baseCard(p){
 
 function cardPedidoCliente(p){
   const entregue = statusFinalizado(p.status) ? `<div class="notice">✅ Entrega entregue/finalizada pelo motoboy.</div>` : "";
-  return `<div class="order"><b>#${p.id}</b> <span class="badge">${p.status}</span>${entregue}${baseCard(p)}${blocoPixPedido(p)}</div>`;
+  return `<div class="order"><b>#${p.id}</b> <span class="badge">${p.status}</span>${entregue}${baseCard(p)}${blocoRastreamento(p)}${blocoPixPedido(p)}</div>`;
 }
 
 function cardPedidoClienteFinalizado(p){
@@ -919,6 +1001,7 @@ function cardPedidoAdmin(p){
   return `<div class="order">
     <b>#${p.id}</b> <span class="badge">${p.status}</span>
     ${baseCard(p)}
+    ${blocoRastreamento(p)}
     ${blocoPixPedido(p)}
     <p><b>Motoboy:</b> ${p.motoboy_nome || "Nenhum"}</p>
     <div class="row">
@@ -935,10 +1018,13 @@ function cardPedidoMotoboy(p){
   return `<div class="order">
     <b>#${p.id}</b> <span class="badge">${p.status}</span>
     ${baseCard(p)}
+    ${blocoRastreamento(p)}
     <a class="btn gray" target="_blank" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(enderecoPedido(p,"entrega"))}">Abrir rota no Maps</a>
     ${!p.motoboy_id?`<button class="yellow" onclick="aceitarPedido(${p.id})">Aceitar corrida</button>`:""}
     ${idIgual(p.motoboy_id,sessao.id)?`
       <button class="blue" onclick="mudarStatus(${p.id},'Pedido coletado')">Pedido coletado</button>
+      <button class="yellow" onclick="iniciarRastreamento(${p.id})">📍 Iniciar rastreamento</button>
+      <button class="gray" onclick="pararRastreamento()">Pausar rastreamento</button>
       <button class="green" onclick="mudarStatus(${p.id},'Entrega finalizada')">Finalizar entrega</button>`:""}
   </div>`;
 }
@@ -1030,6 +1116,7 @@ async function render(){
   if(sessao.tipo==="cliente"){clienteArea.classList.remove("hide"); clienteArea.innerHTML=clienteHTML()}
   if(sessao.tipo==="admin"){adminArea.classList.remove("hide"); adminArea.innerHTML=adminHTML()}
   if(sessao.tipo==="motoboy"){motoboyArea.classList.remove("hide"); motoboyArea.innerHTML=motoboyHTML()}
+  setTimeout(inicializarMapas, 150);
 }
 
 async function iniciar(){
@@ -1037,6 +1124,7 @@ async function iniciar(){
     await carregarDados();
   }
   render();
+  retomarRastreamentoSePreciso();
 
   if(intervaloAtualizacao){
     clearInterval(intervaloAtualizacao);
@@ -1056,6 +1144,7 @@ async function iniciar(){
     // Cliente só atualiza se não estiver digitando.
     if(sessao.tipo === "admin" || sessao.tipo === "motoboy" || !digitando){
       render();
+      retomarRastreamentoSePreciso();
     }
   }, 15000);
 }
