@@ -231,7 +231,7 @@ async function avisarNovaEntregaMotoboy(pedido){
   tocarSomNovaEntrega();
   vibrarNovaEntrega();
   const titulo = "🚀 Nova corrida disponível";
-  const texto = \`Entrega #\${pedido.id || ""} - \${dinheiro(valorPedido(pedido))}\`;
+  const texto = `Entrega #${pedido.id || ""} - ${dinheiro(valorPedido(pedido))}`;
   await mostrarNotificacaoNovaEntrega(titulo, texto);
 }
 
@@ -1138,7 +1138,6 @@ function motoboyHTML(){
       <p><b>WhatsApp:</b> ${sessao.whats}</p>
       <p><b>Pix:</b> ${sessao.pix || "Não informado"}</p>
       <p><b>Pagamento:</b> todo dia às 00:00</p>
-      <button class="yellow" onclick="ativarNotificacaoMotoboy()">🔔 Ativar alertas fortes</button>
       <button class="yellow" onclick="ativarNotificacaoMotoboy()">🔔 Ativar alertas fortes</button>
       <button class="gray" onclick="carregarDados().then(render)">Atualizar corridas</button>
       <div class="tabs">

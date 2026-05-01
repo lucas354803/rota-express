@@ -1,4 +1,38 @@
 
+let eventoInstalarPWA = null;
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch((erro) => console.log("Erro ao registrar PWA", erro));
+  });
+}
+
+window.addEventListener("beforeinstallprompt", (event) => {
+  event.preventDefault();
+  eventoInstalarPWA = event;
+  const botao = document.getElementById("btnInstalarApp");
+  if (botao) botao.classList.remove("hide");
+});
+
+window.addEventListener("appinstalled", () => {
+  const botao = document.getElementById("btnInstalarApp");
+  if (botao) botao.classList.add("hide");
+  eventoInstalarPWA = null;
+});
+
+document.addEventListener("click", async (event) => {
+  if (!event.target || event.target.id !== "btnInstalarApp") return;
+  if (!eventoInstalarPWA) {
+    alert("No celular, abra o menu do navegador e toque em Adicionar à tela inicial ou Instalar app.");
+    return;
+  }
+  eventoInstalarPWA.prompt();
+  await eventoInstalarPWA.userChoice;
+  eventoInstalarPWA = null;
+  const botao = document.getElementById("btnInstalarApp");
+  if (botao) botao.classList.add("hide");
+});
+
 const SUPABASE_URL = "https://dbindrrbdllfozqvmawx.supabase.co";
 const SUPABASE_KEY = "sb_publishable_w8lHZFJkXNGcyoThKTjdIA_FtOQ3uG4";
 const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -25,6 +59,7 @@ let mapasRastreamento = {};
 let alertaEntregaAudioCtx = null;
 let ultimoIdsLiberadosMotoboy = JSON.parse(localStorage.getItem("rota_motoboy_ids_liberados_vistos") || "[]");
 let notificacaoMotoboyAtiva = localStorage.getItem("rota_notificacao_motoboy_ativa") === "sim";
+
 
 
 function liberarSom(){
@@ -816,6 +851,19 @@ async function pagarMotoboy(id){
   const ids = corridas.map(p=>p.id).filter(Boolean);
   const pagoEm = agoraBR();
 
+  if(ids.length){
+    const { error } = await db.from("pedidos").update({
+      pago_motoboy:true,
+      data_pagamento: pagoEm
+    }).in("id", ids);
+    if(error){alert("Erro ao zerar saldo no pedido: " + error.message); return;}
+
+    await db.from("historico_entregas").update({
+      pago_motoboy:true,
+      data_pagamento:pagoEm
+    }).in("pedido_id", ids);
+  }
+
   const pagamento = {
     motoboy_id:id,
     motoboy_nome:m.nome,
@@ -827,28 +875,13 @@ async function pagarMotoboy(id){
     criado_em:new Date().toISOString()
   };
 
-  // Primeiro registra no histórico. Só depois zera o saldo.
-  // Assim, se o Supabase bloquear o histórico, o pagamento não some.
   const { error: erroHistorico } = await db.from("historico_pagamentos").insert(pagamento);
   if(erroHistorico){
     console.error("Erro ao registrar histórico de pagamento:", erroHistorico);
-    alert("Não consegui salvar no Histórico de pagamentos. O saldo NÃO foi zerado. Rode o supabase_atualizacao.sql novo no Supabase e tente novamente. Erro: " + erroHistorico.message);
+    alert("O saldo foi zerado, mas não consegui salvar no Histórico de pagamentos. Rode o supabase_atualizacao.sql novo e tente novamente. Erro: " + erroHistorico.message);
     await carregarDados();
     render();
     return;
-  }
-
-  if(ids.length){
-    const { error } = await db.from("pedidos").update({
-      pago_motoboy:true,
-      data_pagamento: pagoEm
-    }).in("id", ids);
-    if(error){alert("O histórico foi salvo, mas deu erro ao zerar saldo no pedido: " + error.message); return;}
-
-    await db.from("historico_entregas").update({
-      pago_motoboy:true,
-      data_pagamento:pagoEm
-    }).in("pedido_id", ids);
   }
 
   await carregarDados();
@@ -1203,3 +1236,4 @@ async function iniciar(){
 }
 
 iniciar();
+
