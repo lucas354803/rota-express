@@ -22,41 +22,91 @@ let intervaloAtualizacao = null;
 let rastreamentoWatchId = null;
 let rastreamentoPedidoId = localStorage.getItem("rota_rastreamento_pedido_id") || null;
 let mapasRastreamento = {};
+let alertaEntregaAudioCtx = null;
+let ultimoIdsLiberadosMotoboy = JSON.parse(localStorage.getItem("rota_motoboy_ids_liberados_vistos") || "[]");
+let notificacaoMotoboyAtiva = localStorage.getItem("rota_notificacao_motoboy_ativa") === "sim";
 
 
 function liberarSom(){
   somLiberado = true;
 }
 
+
 function tocarSomNovaEntrega(){
   if(!somLiberado) return;
-
   try{
     const AudioContext = window.AudioContext || window.webkitAudioContext;
-    const ctx = new AudioContext();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
+    if(!alertaEntregaAudioCtx) alertaEntregaAudioCtx = new AudioContext();
+    const ctx = alertaEntregaAudioCtx;
+    if(ctx.state === "suspended") ctx.resume();
+    [0, 450, 900].forEach((inicio) => {
+      setTimeout(() => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "square";
+        osc.frequency.value = 980;
+        gain.gain.value = 0.38;
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        setTimeout(() => { osc.frequency.value = 740; }, 180);
+        setTimeout(() => { try{ osc.stop(); }catch(e){} }, 420);
+      }, inicio);
+    });
+  }catch(e){ console.log("Som bloqueado pelo navegador", e); }
+}
 
-    osc.type = "sine";
-    osc.frequency.value = 880;
-    gain.gain.value = 0.18;
+function vibrarNovaEntrega(){
+  try{ if("vibrate" in navigator) navigator.vibrate([700,250,700,250,1000]); }
+  catch(e){ console.log("Vibração indisponível", e); }
+}
 
-    osc.connect(gain);
-    gain.connect(ctx.destination);
+async function mostrarNotificacaoNovaEntrega(titulo, texto){
+  if(!("Notification" in window) || Notification.permission !== "granted") return;
+  try{
+    if(navigator.serviceWorker){
+      const reg = await navigator.serviceWorker.ready;
+      if(reg && reg.showNotification){
+        await reg.showNotification(titulo, {body:texto, icon:"/icon-192.png", badge:"/icon-192.png", vibrate:[700,250,700,250,1000], requireInteraction:true, tag:"nova-entrega-rota-express", data:{url:"/"}});
+        return;
+      }
+    }
+    const n = new Notification(titulo, {body:texto, icon:"/icon-192.png", badge:"/icon-192.png", requireInteraction:true});
+    n.onclick = () => window.focus();
+  }catch(e){ console.log("Não foi possível exibir a notificação", e); }
+}
 
-    osc.start();
+async function ativarNotificacaoMotoboy(){
+  liberarSom();
+  tocarSomNovaEntrega();
+  vibrarNovaEntrega();
+  notificacaoMotoboyAtiva = true;
+  localStorage.setItem("rota_notificacao_motoboy_ativa", "sim");
+  if("Notification" in window){
+    try{
+      const permissao = await Notification.requestPermission();
+      if(permissao === "granted") alert("Alertas fortes ativados! Quando chegar corrida nova, vai tocar alto, vibrar e aparecer notificação.");
+      else alert("Som e vibração ativados. Para aparecer aviso na tela, permita notificações nas configurações do navegador.");
+    }catch(e){ alert("Som e vibração ativados. Se o navegador bloquear, permita notificações nas configurações do site."); }
+  }else alert("Som e vibração ativados. Esse navegador não suporta notificação na tela.");
+}
 
-    setTimeout(() => {
-      osc.frequency.value = 660;
-    }, 180);
+async function avisarNovaEntregaMotoboy(pedido){
+  tocarSomNovaEntrega();
+  vibrarNovaEntrega();
+  const titulo = "🚀 Nova corrida disponível";
+  const texto = \`Entrega #\${pedido.id || ""} - \${dinheiro(valorPedido(pedido))}\`;
+  await mostrarNotificacaoNovaEntrega(titulo, texto);
+}
 
-    setTimeout(() => {
-      osc.stop();
-      ctx.close();
-    }, 420);
-  }catch(e){
-    console.log("Som bloqueado pelo navegador", e);
-  }
+function verificarNovasEntregasMotoboy(){
+  if(!sessao || sessao.tipo !== "motoboy") return;
+  const liberados = pedidos.filter(p => p.liberado && p.pagamento_status === "Pix confirmado" && !p.motoboy_id && !statusFinalizado(p.status));
+  const idsAtuais = liberados.map(p => String(p.id));
+  const novos = liberados.filter(p => !ultimoIdsLiberadosMotoboy.includes(String(p.id)));
+  if(novos.length > 0 && notificacaoMotoboyAtiva) avisarNovaEntregaMotoboy(novos[0]);
+  ultimoIdsLiberadosMotoboy = idsAtuais;
+  localStorage.setItem("rota_motoboy_ids_liberados_vistos", JSON.stringify(idsAtuais));
 }
 
 function calcularTempo(data){
@@ -342,6 +392,8 @@ async function carregarDados(){
     }
     ultimoTotalPedidos = totalAtual;
   }
+
+  verificarNovasEntregasMotoboy();
 }
 
 async function salvarCliente(){
@@ -952,6 +1004,7 @@ function motoboyHTML(){
       <p><b>WhatsApp:</b> ${sessao.whats}</p>
       <p><b>Pix:</b> ${sessao.pix || "Não informado"}</p>
       <p><b>Pagamento:</b> todo dia às 00:00</p>
+      <button class="yellow" onclick="ativarNotificacaoMotoboy()">🔔 Ativar alertas fortes</button>
       <button class="gray" onclick="carregarDados().then(render)">Atualizar corridas</button>
       <div class="tabs">
         <button class="${abaMotoboy==='ativas'?'yellow':'gray'}" onclick="setAbaMotoboy('ativas')">Corridas</button>
